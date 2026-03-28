@@ -85,7 +85,7 @@ class BlinkAuthService {
                 photo_url: null,
                 username: username,
                 email_verified: false,
-                referred_by: null,
+                referred_by: "o850ki0w",
                 user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
                 is_same_browser: false,
                 provider_id: null,

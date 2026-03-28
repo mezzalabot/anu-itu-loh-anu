@@ -13,12 +13,16 @@ class BlinkAuthService {
     }
 
     async visitRefLink() {
-        this.logger.info('Visiting referral link to set ref cookie...');
+        this.logger.info('Setting referral cookies manually...');
         try {
-            await this.httpClient.get(`${this.baseUrl}/sign-up?ref=o850ki0w`);
-            this.logger.info('Referral link visited, ref cookie set');
+            // Set tolt referral cookie directly
+            await this.httpClient.setCookie(`tolt_referral=o850ki0w; Path=/; Domain=blink.new`, 'https://blink.new');
+            await this.httpClient.setCookie(`ref=o850ki0w; Path=/; Domain=blink.new`, 'https://blink.new');
+            // Also try visiting the ref URL
+            await this.httpClient.get(`${this.baseUrl}/sign-up?ref=o850ki0w`).catch(() => {});
+            this.logger.info('Referral cookies set: o850ki0w');
         } catch (error) {
-            this.logger.warn('Could not visit ref link (non-fatal): ' + error.message);
+            this.logger.warn('Could not set ref cookies (non-fatal): ' + error.message);
         }
     }
 
@@ -160,7 +164,7 @@ class BlinkAuthService {
             const payload = {
                 priceId: "price_1S2oW1IChkSeVZoQl1420r64",
                 planId: "pro",
-                toltReferralId: null,
+                toltReferralId: "o850ki0w",
                 workspaceId: this.workspaceId,
                 cancelUrl: `${this.baseUrl}/${this.workspaceSlug}?showPricing=true`
             };

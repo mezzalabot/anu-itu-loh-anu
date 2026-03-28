@@ -12,12 +12,22 @@ class BlinkAuthService {
         this.workspaceSlug = null;
     }
 
+    async visitRefLink() {
+        this.logger.info('Visiting referral link to set ref cookie...');
+        try {
+            await this.httpClient.get(`${this.baseUrl}/sign-up?ref=o850ki0w`);
+            this.logger.info('Referral link visited, ref cookie set');
+        } catch (error) {
+            this.logger.warn('Could not visit ref link (non-fatal): ' + error.message);
+        }
+    }
+
     async sendMagicLink(email) {
         this.logger.info(`Sending magic link to ${email}...`);
         try {
             const payload = {
                 email: email,
-                redirectUrl: "/"
+                redirectUrl: "/?ref=o850ki0w"
             };
             const response = await this.httpClient.post(`${this.baseUrl}/api/auth/main-app/magic-link`, payload);
             if (response.data && response.data.success) {

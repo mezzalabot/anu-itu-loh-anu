@@ -13,16 +13,17 @@ class BlinkAuthService {
     }
 
     async visitRefLink() {
-        this.logger.info('Setting referral cookies manually...');
+        this.logger.info('Visiting referral link to trigger tolt.js tracking...');
         try {
-            // Set tolt referral cookie directly
-            await this.httpClient.setCookie(`tolt_referral=o850ki0w; Path=/; Domain=blink.new`, 'https://blink.new');
-            await this.httpClient.setCookie(`ref=o850ki0w; Path=/; Domain=blink.new`, 'https://blink.new');
-            // Also try visiting the ref URL
-            await this.httpClient.get(`${this.baseUrl}/sign-up?ref=o850ki0w`).catch(() => {});
-            this.logger.info('Referral cookies set: o850ki0w');
+            // Visit sign-up page with ref param so tolt.js can set its cookie
+            const response = await this.httpClient.get(`${this.baseUrl}/sign-up?ref=o850ki0w`);
+            // Manually set tolt cookie variants
+            await this.httpClient.setCookie(`tolt_referral=o850ki0w; Path=/; Domain=.blink.new; SameSite=Lax`, 'https://blink.new').catch(() => {});
+            await this.httpClient.setCookie(`tolt=o850ki0w; Path=/; Domain=.blink.new; SameSite=Lax`, 'https://blink.new').catch(() => {});
+            await this.httpClient.setCookie(`ref=o850ki0w; Path=/; Domain=.blink.new; SameSite=Lax`, 'https://blink.new').catch(() => {});
+            this.logger.info('Referral visit done, cookies set for o850ki0w');
         } catch (error) {
-            this.logger.warn('Could not set ref cookies (non-fatal): ' + error.message);
+            this.logger.warn('Could not visit ref link (non-fatal): ' + error.message);
         }
     }
 

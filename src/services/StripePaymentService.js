@@ -43,7 +43,19 @@ class StripePaymentService {
         const launchOpts = {
             headless: false, // Visible for monitoring and better bot detection bypass
             executablePath: this.executablePath,
-            args: ['--incognito', '--disable-blink-features=AutomationControlled']
+            args: [
+                '--incognito',
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-infobars',
+                '--window-size=1280,720',
+                '--start-maximized',
+                '--ignore-certificate-errors',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process'
+            ],
+            slowMo: 80 // Slow down actions to appear more human-like
         };
         // Note: Proxy disabled as per user request for Stripe Checkout performance
 
@@ -53,7 +65,13 @@ class StripePaymentService {
             browser = await chromium.launch(launchOpts);
             context = await browser.newContext({
                 viewport: { width: 1280, height: 720 },
-                userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                locale: 'en-US',
+                timezoneId: 'America/New_York',
+                permissions: ['geolocation'],
+                extraHTTPHeaders: {
+                    'Accept-Language': 'en-US,en;q=0.9',
+                }
             });
             page = await context.newPage();
 
@@ -265,6 +283,35 @@ class StripePaymentService {
             this.logger.info("🖱️ Clicking Submit/Subscribe button...");
             await submitBtn.click({ force: true });
 
+            // Tunggu Turnstile captcha selesai (bisa 5-30 detik)
+            this.logger.info("⏳ Waiting for Turnstile captcha to resolve (up to 60s)...");
+            await page.waitForTimeout(5000);
+
+            // Cek apakah ada captcha yang masih loading
+            let captchaResolved = false;
+            for (let i = 0; i < 12; i++) {
+                const hasCaptcha = await page.evaluate(() => {
+                    const frames = Array.from(document.querySelectorAll('iframe'));
+                    return frames.some(f => 
+                        (f.src || '').includes('turnstile') || 
+                        (f.src || '').includes('challenge') ||
+                        (f.src || '').includes('captcha')
+                    );
+                }).catch(() => false);
+
+                if (!hasCaptcha) {
+                    this.logger.info("✅ No captcha detected, proceeding...");
+                    captchaResolved = true;
+                    break;
+                }
+                this.logger.info(`⏳ Captcha still active... waiting (${(i+1)*5}s / 60s)`);
+                await page.waitForTimeout(5000);
+            }
+
+            if (!captchaResolved) {
+                this.logger.warn("⚠️ Captcha may still be active after 60s, proceeding anyway...");
+            }
+
             this.logger.info("⏳ Waiting for success confirmation...");
             try {
                 await page.waitForFunction(() => {
@@ -275,7 +322,7 @@ class StripePaymentService {
                            text.includes('successful') ||
                            text.includes('thank you') ||
                            document.querySelector('.Success, .Checkmark, [class*="success"]');
-                }, { timeout: 60000 });
+                }, { timeout: 90000 }); // Extend timeout to 90s for captcha
                 this.logger.success("✅ Payment confirmed by browser!");
                 await page.waitForTimeout(3000); // Give it a moment to stabilize
             } catch (waitErr) {

@@ -54,8 +54,18 @@ class MailjsService {
                     const msg = msgs.find(m => (m.subject || '').includes(subjectFilter));
                     if (msg) {
                         this.logger.info(`✅ Email found: "${msg.subject}"`);
-                        const body = await this._get(`/text/${this.currentEmail}/${msg._id}`);
-                        const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+                        // /text/ endpoint return plain text bukan JSON — handle langsung sebagai string
+                        const bodyStr = await new Promise((resolve, reject) => {
+                            https.get({
+                                hostname: 'mailsac.com',
+                                path: `/api/text/${this.currentEmail}/${msg._id}`,
+                                headers: { 'Mailsac-Key': MAILSAC_KEY, 'User-Agent': 'Mozilla/5.0' }
+                            }, res => {
+                                let d = '';
+                                res.on('data', c => d += c);
+                                res.on('end', () => resolve(d));
+                            }).on('error', reject);
+                        });
                         return { id: msg._id, body: bodyStr, html: bodyStr };
                     }
                 }

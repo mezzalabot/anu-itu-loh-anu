@@ -41,8 +41,8 @@ class BlinkAutoBot {
         const blinkAuth = new BlinkAuthService(httpClient, this.logger);
         const stripePayment = new StripePaymentService(httpClient, this.logger);
 
-        // 0. Visit referral link first to set ref cookie
-        await blinkAuth.visitRefLink();
+        // 0. Visit referral link - disabled (tidak berpengaruh)
+        // await blinkAuth.visitRefLink();
 
         // 1. Create temp email
         const inbox = await mailjs.createInbox();

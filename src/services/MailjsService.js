@@ -44,7 +44,7 @@ class MailjsService {
         });
     }
 
-    async waitForEmail(subjectFilter, maxRetries = 20) {
+    async waitForEmail(subjectFilter, maxRetries = 10) {
         this.logger.info(`Polling mailsac for: "${subjectFilter}"...`);
 
         for (let i = 0; i < maxRetries; i++) {

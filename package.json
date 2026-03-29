@@ -17,6 +17,7 @@
     "https-proxy-agent": "^7.0.4",
     "inquirer": "^8.2.5",
     "playwright": "^1.58.2",
+    "socket.io-client": "^4.8.3",
     "tough-cookie": "^4.1.3"
   }
 }

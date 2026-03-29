@@ -66,8 +66,10 @@ class MailjsService {
     }
 
     extractMagicTokenUrl(emailBody) {
-        const decoded = emailBody.replace(/&amp;/g, '&');
-        const regex = /https:\/\/blink\.new\/auth\?magic_token=[^\s"'<>&\]]+/;
+        // Decode HTML entities dulu
+        const decoded = emailBody.replace(/&amp;/g, '&').replace(/&#038;/g, '&');
+        // Capture URL lengkap termasuk &email= parameter
+        const regex = /https:\/\/blink\.new\/auth\?magic_token=[^\s"'<>\]]+/;
         const match = decoded.match(regex);
         return match ? match[0] : null;
     }

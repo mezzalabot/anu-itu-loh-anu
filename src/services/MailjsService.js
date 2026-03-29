@@ -1,17 +1,16 @@
-const { io } = require('socket.io-client');
+const { execSync } = require('child_process');
 const { faker } = require('@faker-js/faker');
-const https = require('https');
+
+const MAILSAC_KEY = process.env.MAILSAC_KEY || 'k_zVYJb7VDfReqtg3Nbv5uakncesa9LKtT9sA5058';
 
 /**
- * GeneratorEmailService - pakai generator.email via Socket.IO
- * Domain: globalwork.dev (lolos filter Blink)
+ * MailsacService - pakai mailsac.com (lolos filter Blink, API proven works)
+ * Polling via curl untuk bypass Cloudflare
  */
 class MailjsService {
     constructor(logger) {
         this.logger = logger;
         this.currentEmail = null;
-        this.currentName = null;
-        this.socket = null;
     }
 
     _randomName() {
@@ -21,159 +20,76 @@ class MailjsService {
         return `${first}${last}${num}`;
     }
 
-    async _hitInboxPage(email) {
-        return new Promise((resolve) => {
-            const req = https.get(`https://generator.email/${email}`, {
-                headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://generator.email/' },
-                timeout: 10000
-            }, res => {
-                let d = '';
-                res.on('data', c => d += c);
-                res.on('end', () => resolve(d.length));
-            });
-            req.on('error', () => resolve(0));
-            req.on('timeout', () => { req.destroy(); resolve(0); });
-        });
+    _curl(url, extraHeaders = []) {
+        const headers = [
+            '-H', `Mailsac-Key: ${MAILSAC_KEY}`,
+            '-A', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        ];
+        for (const h of extraHeaders) headers.push('-H', h);
+        
+        const result = execSync(
+            `curl -s ${headers.join(' ')} "${url}"`,
+            { timeout: 30000, encoding: 'utf8' }
+        );
+        return result;
     }
 
     /**
-     * Create a new random inbox on generator.email
+     * Create a new random inbox on mailsac.com
+     * Mailsac does NOT require registration for random addresses!
      */
     async createInbox() {
-        this.logger.info('Creating generator.email inbox (HTTP mode)...');
         const name = this._randomName();
-        const address = `${name}@globalwork.dev`;
-        this.currentName = name;
+        const address = `${name}@mailsac.com`;
         this.currentEmail = address;
-
-        // Hit inbox page to activate
-        await this._hitInboxPage(address);
-        this.logger.info(`Inbox ready: ${address}`);
+        this.logger.info(`Mailsac inbox ready: ${address}`);
         return { address, password: 'N/A' };
     }
 
     /**
-     * Wait for email with specific subject via Socket.IO
+     * Wait for email with specific subject via curl polling
      */
     async waitForEmail(subjectFilter, maxRetries = 30) {
-        this.logger.info(`Waiting for email on generator.email (HTTP polling)...`);
-        const email = this.currentEmail;
+        this.logger.info(`Polling mailsac for: "${subjectFilter}"...`);
 
-        return new Promise((resolve, reject) => {
-            let resolved = false;
-            const timeout = setTimeout(() => {
-                if (!resolved) {
-                    resolved = true;
-                    if (this.socket) this.socket.disconnect();
-                    reject(new Error('Timeout waiting for email from generator.email'));
-                }
-            }, maxRetries * 5000);
-
-            this.socket = io('https://generator.email', {
-                transports: ['polling', 'websocket'],
-                path: '/socket.io/',
-                timeout: 30000,
-                reconnection: true,
-                reconnectionAttempts: 5,
-            });
-
-            this.socket.on('connect', () => {
-                this.logger.info(`Socket connected. Subscribing to ${email}...`);
-                this.socket.emit('subscribe', email);
-                this.socket.emit('adduser', email);
-            });
-
-            this.socket.onAny((event, ...args) => {
-                if (['ping', 'pong', 'connect', 'disconnect'].includes(event)) return;
-
-                const data = JSON.stringify(args);
-                this.logger.info(`Socket event: ${event}`);
-
-                // Cek apakah ada magic token URL
-                const magicMatch = data.match(/https:\\\/\\\/blink\.new\\\/auth\?magic_token=[^"'\\s]+/);
-                const magicMatch2 = data.match(/https:\/\/blink\.new\/auth\?magic_token=[^"'\s]+/);
-                const match = magicMatch || magicMatch2;
-
-                if (match) {
-                    const url = match[0].replace(/\\\//g, '/');
-                    this.logger.info(`Magic token URL captured!`);
-                    clearTimeout(timeout);
-                    resolved = true;
-                    this.socket.disconnect();
-                    resolve({ id: Date.now().toString(), body: data, html: data });
-                } else if (data.toLowerCase().includes('sign in') || data.toLowerCase().includes('blink')) {
-                    clearTimeout(timeout);
-                    resolved = true;
-                    this.socket.disconnect();
-                    resolve({ id: Date.now().toString(), body: data, html: data });
-                }
-            });
-
-            this.socket.on('connect_error', (err) => {
-                this.logger.info(`Socket error: ${err.message} - falling back to HTTP polling`);
-                // Fallback: HTTP polling
-                this._httpPoll(email, subjectFilter, maxRetries).then(result => {
-                    if (!resolved) {
-                        resolved = true;
-                        clearTimeout(timeout);
-                        resolve(result);
-                    }
-                }).catch(err => {
-                    if (!resolved) {
-                        resolved = true;
-                        clearTimeout(timeout);
-                        reject(err);
-                    }
-                });
-            });
-        });
-    }
-
-    async _httpPoll(email, subjectFilter, maxRetries) {
-        const { execSync } = require('child_process');
-        const MAILSAC_KEY = process.env.MAILSAC_KEY || 'k_zVYJb7VDfReqtg3Nbv5uakncesa9LKtT9sA5058';
-
-        // Fallback ke mailsac jika socket.io gagal
-        this.logger.info(`Fallback: polling mailsac untuk ${email.split('@')[0]}@mailsac.com`);
-
-        // Buat email baru di mailsac
-        const name = email.split('@')[0];
-        const mailsacEmail = `${name}@mailsac.com`;
+        // Initial delay: Blink butuh ~30 detik untuk deliver email
+        this.logger.info('⏳ Initial delay 30s (Blink delivery time)...');
+        await new Promise(resolve => setTimeout(resolve, 30000));
 
         for (let i = 0; i < maxRetries; i++) {
-            await new Promise(r => setTimeout(r, 5000));
             try {
-                const result = execSync([
-                    'curl', '-s', '-H', `Mailsac-Key: ${MAILSAC_KEY}`,
-                    '-A', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                    `https://mailsac.com/api/addresses/${mailsacEmail}/messages`
-                ].join(' '), { timeout: 15000, encoding: 'utf8' });
+                const raw = this._curl(
+                    `https://mailsac.com/api/addresses/${this.currentEmail}/messages`
+                );
+                const msgs = JSON.parse(raw);
 
-                const msgs = JSON.parse(result);
                 if (Array.isArray(msgs) && msgs.length > 0) {
                     const msg = msgs.find(m => (m.subject || '').includes(subjectFilter));
                     if (msg) {
-                        const body = execSync([
-                            'curl', '-s', '-H', `Mailsac-Key: ${MAILSAC_KEY}`,
-                            '-A', 'Mozilla/5.0',
-                            `https://mailsac.com/api/text/${mailsacEmail}/${msg._id}`
-                        ].join(' '), { timeout: 15000, encoding: 'utf8' });
+                        this.logger.info(`✅ Email found: "${msg.subject}"`);
+                        const body = this._curl(
+                            `https://mailsac.com/api/text/${this.currentEmail}/${msg._id}`
+                        );
                         return { id: msg._id, body, html: body };
                     }
                 }
             } catch (e) {
-                this.logger.info(`HTTP poll error: ${e.message}`);
+                this.logger.info(`Poll ${i + 1} error: ${e.message}`);
             }
+
+            this.logger.info(`Poll ${i + 1}/${maxRetries}: no email yet, wait 5s...`);
+            await new Promise(resolve => setTimeout(resolve, 5000));
         }
-        throw new Error('Timeout in HTTP fallback polling');
+
+        throw new Error('Timeout waiting for email on mailsac.com');
     }
 
     /**
      * Extract Blink magic token URL from email body
      */
     extractMagicTokenUrl(emailBody) {
-        const decoded = emailBody.replace(/&amp;/g, '&').replace(/\\\/\\\//g, '//').replace(/\\\//g, '/');
-        const regex = /https:\/\/blink\.new\/auth\?magic_token=[^\s"'<>&\]\\]+/;
+        const decoded = emailBody.replace(/&amp;/g, '&');
+        const regex = /https:\/\/blink\.new\/auth\?magic_token=[^\s"'<>&\]]+/;
         const match = decoded.match(regex);
         return match ? match[0] : null;
     }

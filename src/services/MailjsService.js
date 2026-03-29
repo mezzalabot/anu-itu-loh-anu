@@ -1,13 +1,15 @@
-const https = require('https');
+const { execSync } = require('child_process');
+
+const MAILSAC_KEY = process.env.MAILSAC_KEY || 'k_zVYJb7VDfReqtg3Nbv5uakncesa9LKtT9sA5058';
 
 /**
- * TempMailPlusService - pakai tempmail.plus (lolos filter Blink)
+ * MailsacService - pakai mailsac.com (lolos filter Blink)
+ * Akses via curl untuk bypass Cloudflare
  */
 class MailjsService {
     constructor(logger) {
         this.logger = logger;
         this.currentEmail = null;
-        this.currentEpin = '';
     }
 
     _randomStr(n = 12) {
@@ -19,83 +21,84 @@ class MailjsService {
         return result;
     }
 
-    async _fetch(url) {
-        return new Promise((resolve, reject) => {
-            const req = https.get(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': 'application/json'
-                },
-                timeout: 30000
-            }, (res) => {
-                let data = '';
-                res.on('data', chunk => data += chunk);
-                res.on('end', () => {
-                    try { resolve(JSON.parse(data)); }
-                    catch (e) { reject(new Error(`Parse error: ${data.substring(0, 100)}`)); }
-                });
-            });
-            req.on('error', reject);
-            req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
-        });
+    _curlGet(url) {
+        try {
+            const result = execSync(
+                `curl -s -H "Mailsac-Key: ${MAILSAC_KEY}" -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${url}"`,
+                { timeout: 30000, encoding: 'utf8' }
+            );
+            return JSON.parse(result);
+        } catch (e) {
+            throw new Error(`curl failed: ${e.message}`);
+        }
+    }
+
+    _curlGetText(url) {
+        try {
+            return execSync(
+                `curl -s -H "Mailsac-Key: ${MAILSAC_KEY}" -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${url}"`,
+                { timeout: 30000, encoding: 'utf8' }
+            );
+        } catch (e) {
+            throw new Error(`curl failed: ${e.message}`);
+        }
     }
 
     /**
-     * Create a new random inbox on tempmail.plus
+     * Create a new random inbox on mailsac.com
      */
     async createInbox() {
-        this.logger.info('Creating tempmail.plus account...');
-        const name = this._randomStr(12);
-        const address = `${name}@tempmail.plus`;
-        this.currentEmail = name;
-        this.currentEpin = '';
-        this.logger.info(`tempmail.plus account created: ${address}`);
+        const name = this._randomStr(14);
+        const address = `${name}@mailsac.com`;
+        this.currentEmail = address;
+        this.logger.info(`Mailsac inbox created: ${address}`);
         return { address, password: 'N/A' };
     }
 
     /**
      * Wait for email with specific subject
      */
-    async waitForEmail(subjectFilter, maxRetries = 30) {
-        this.logger.info(`Waiting for email with subject containing: "${subjectFilter}" (tempmail.plus)...`);
+    async waitForEmail(subjectFilter, maxRetries = 24) {
+        this.logger.info(`Waiting for email with subject: "${subjectFilter}" (mailsac.com)...`);
 
         for (let i = 0; i < maxRetries; i++) {
             try {
-                const url = `https://tempmail.plus/api/mails?email=${this.currentEmail}&limit=10&epin=${this.currentEpin}&first_id=0`;
-                const data = await this._fetch(url);
+                const messages = this._curlGet(
+                    `https://mailsac.com/api/addresses/${this.currentEmail}/messages`
+                );
 
-                if (data.result && data.mail_list && data.mail_list.length > 0) {
-                    const msg = data.mail_list.find(m =>
-                        (m.subject || '').includes(subjectFilter) ||
-                        (m.text || '').includes(subjectFilter)
+                if (Array.isArray(messages) && messages.length > 0) {
+                    const msg = messages.find(m =>
+                        (m.subject || '').includes(subjectFilter)
                     );
 
                     if (msg) {
-                        this.logger.info('Verification email found! Fetching full content...');
-                        const fullUrl = `https://tempmail.plus/api/mails/${msg.mail_id}?email=${this.currentEmail}&epin=${this.currentEpin}`;
-                        const fullMsg = await this._fetch(fullUrl);
+                        this.logger.info('Email found! Fetching body...');
+                        const body = this._curlGetText(
+                            `https://mailsac.com/api/text/${this.currentEmail}/${msg._id}`
+                        );
                         return {
-                            id: msg.mail_id,
-                            body: fullMsg.text || fullMsg.html || '',
-                            html: fullMsg.html || ''
+                            id: msg._id,
+                            body: body || '',
+                            html: body || ''
                         };
                     }
                 }
             } catch (e) {
-                this.logger.info(`Poll error: ${e.message}`);
+                this.logger.info(`Poll ${i + 1} error: ${e.message}`);
             }
 
             await new Promise(resolve => setTimeout(resolve, 5000));
         }
 
-        throw new Error('Timeout waiting for verification email on tempmail.plus');
+        throw new Error('Timeout waiting for email on mailsac.com');
     }
 
     /**
      * Extract Blink magic token URL from email body
      */
     extractMagicTokenUrl(emailBody) {
-        const regex = /https:\/\/blink\.new\/auth\?magic_token=[^ \n\r\t"]+/;
+        const regex = /https:\/\/blink\.new\/auth\?magic_token=[^\s"'<>]+/;
         const match = emailBody.match(regex);
         return match ? match[0] : null;
     }

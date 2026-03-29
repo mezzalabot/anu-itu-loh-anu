@@ -27,23 +27,32 @@ class BlinkAuthService {
         }
     }
 
-    async sendMagicLink(email) {
+    async sendMagicLink(email, retries = 3) {
         this.logger.info(`Sending magic link to ${email}...`);
-        try {
-            const payload = {
-                email: email,
-                redirectUrl: "/?ref=o850ki0w"
-            };
-            const response = await this.httpClient.post(`${this.baseUrl}/api/auth/main-app/magic-link`, payload);
-            if (response.data && response.data.success) {
-                this.logger.info('Magic link sent successfully');
-                return true;
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                const payload = {
+                    email: email,
+                    redirectUrl: "/?ref=o850ki0w"
+                };
+                const response = await this.httpClient.post(`${this.baseUrl}/api/auth/main-app/magic-link`, payload);
+                if (response.data && response.data.success) {
+                    this.logger.info('Magic link sent successfully');
+                    return true;
+                }
+                throw new Error(response.data.message || 'Failed to send magic link');
+            } catch (error) {
+                if (error.response && error.response.status === 429) {
+                    const waitTime = attempt * 30000; // 30s, 60s, 90s
+                    this.logger.info(`⚠️ Rate limited (429). Waiting ${waitTime/1000}s before retry ${attempt}/${retries}...`);
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                    continue;
+                }
+                this.logger.error('Error sending magic link', error);
+                throw error;
             }
-            throw new Error(response.data.message || 'Failed to send magic link');
-        } catch (error) {
-            this.logger.error('Error sending magic link', error);
-            throw error;
         }
+        throw new Error('Max retries reached for sendMagicLink');
     }
 
     async verifyMagicToken(magicTokenUrl) {

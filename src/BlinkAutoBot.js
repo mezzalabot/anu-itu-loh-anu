@@ -14,11 +14,17 @@ class BlinkAutoBot {
 
     async run() {
         this.logger.info(`Starting Blink Auto Bot in REGISTRATION mode with ${this.config.credits.length} cards...`);
-        for (const card of this.config.credits) {
+        for (let i = 0; i < this.config.credits.length; i++) {
+            const card = this.config.credits[i];
             try {
                 await this.processCard(card);
             } catch (error) {
                 this.logger.error(`Failed to process card ${card.number}`, error);
+            }
+            // Delay antar kartu untuk hindari rate limit 429
+            if (i < this.config.credits.length - 1) {
+                this.logger.info(`⏳ Waiting 15s before next card...`);
+                await new Promise(resolve => setTimeout(resolve, 15000));
             }
         }
         

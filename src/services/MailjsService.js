@@ -1,10 +1,7 @@
-const { execSync } = require('child_process');
 const https = require('https');
 const { faker } = require('@faker-js/faker');
 
 const MAILSAC_KEY = process.env.MAILSAC_KEY || 'k_zVYJb7VDfReqtg3Nbv5uakncesa9LKtT9sA5058';
-const isWindows = process.platform === 'win32';
-const CURL = isWindows ? 'curl.exe' : 'curl';
 
 class MailjsService {
     constructor(logger) {
@@ -27,40 +24,37 @@ class MailjsService {
         return { address, password: 'N/A' };
     }
 
-    _fetchMailsac(path) {
-        // Coba curl dulu, fallback ke node https
-        try {
-            const cmd = `${CURL} -s -H "Mailsac-Key: ${MAILSAC_KEY}" -A "Mozilla/5.0" "https://mailsac.com/api${path}"`;
-            const result = execSync(cmd, { timeout: 15000, encoding: 'utf8' });
-            return JSON.parse(result);
-        } catch (e) {
-            // Fallback ke node https
-            return new Promise((resolve, reject) => {
-                https.get({
-                    hostname: 'mailsac.com',
-                    path: `/api${path}`,
-                    headers: { 'Mailsac-Key': MAILSAC_KEY, 'User-Agent': 'Mozilla/5.0' }
-                }, res => {
-                    let d = '';
-                    res.on('data', c => d += c);
-                    res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { reject(e); } });
-                }).on('error', reject);
-            });
-        }
+    _get(path) {
+        return new Promise((resolve, reject) => {
+            https.get({
+                hostname: 'mailsac.com',
+                path: `/api${path}`,
+                headers: {
+                    'Mailsac-Key': MAILSAC_KEY,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+                }
+            }, res => {
+                let d = '';
+                res.on('data', c => d += c);
+                res.on('end', () => {
+                    try { resolve(JSON.parse(d)); }
+                    catch(e) { resolve(d); }  // text response (email body)
+                });
+            }).on('error', reject);
+        });
     }
 
     async waitForEmail(subjectFilter, maxRetries = 20) {
-        // Max 20 × 5s = 100 detik total (email biasanya masuk < 15s)
         this.logger.info(`Polling mailsac for: "${subjectFilter}"...`);
 
         for (let i = 0; i < maxRetries; i++) {
             try {
-                const msgs = await this._fetchMailsac(`/addresses/${this.currentEmail}/messages`);
+                const msgs = await this._get(`/addresses/${this.currentEmail}/messages`);
                 if (Array.isArray(msgs) && msgs.length > 0) {
                     const msg = msgs.find(m => (m.subject || '').includes(subjectFilter));
                     if (msg) {
                         this.logger.info(`✅ Email found: "${msg.subject}"`);
-                        const body = await this._fetchMailsac(`/text/${this.currentEmail}/${msg._id}`);
+                        const body = await this._get(`/text/${this.currentEmail}/${msg._id}`);
                         const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
                         return { id: msg._id, body: bodyStr, html: bodyStr };
                     }

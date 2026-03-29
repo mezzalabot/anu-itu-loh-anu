@@ -1,25 +1,24 @@
 const axios = require('axios');
 const { faker } = require('@faker-js/faker');
 
+const MAILSAC_KEY = process.env.MAILSAC_KEY || 'k_zVYJb7VDfReqtg3Nbv5uakncesa9LKtT9sA5058';
+
 /**
- * GeneratorEmail - pakai generator.email (lolos filter Blink)
- * Domain: globalwork.dev
- * Polling via HTTP scraping
+ * MailsacService - pakai mailsac.com (lolos filter Blink, terbukti berhasil)
+ * Polling via axios (cross-platform, Windows safe)
  */
 class MailjsService {
     constructor(logger) {
         this.logger = logger;
         this.currentEmail = null;
-        this.currentName = null;
 
-        this.httpClient = axios.create({
-            timeout: 30000,
+        this.client = axios.create({
+            baseURL: 'https://mailsac.com/api',
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,*/*',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Referer': 'https://generator.email/'
-            }
+                'Mailsac-Key': MAILSAC_KEY,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            },
+            timeout: 30000
         });
     }
 
@@ -32,43 +31,29 @@ class MailjsService {
 
     async createInbox() {
         const name = this._randomName();
-        const address = `${name}@globalwork.dev`;
-        this.currentName = name;
+        const address = `${name}@mailsac.com`;
         this.currentEmail = address;
-        this.logger.info(`Generator.email inbox ready: ${address}`);
-
-        // Hit inbox page to activate
-        try {
-            await this.httpClient.get(`https://generator.email/${address}`);
-        } catch (e) {
-            // Ignore
-        }
-
+        this.logger.info(`Mailsac inbox ready: ${address}`);
         return { address, password: 'N/A' };
     }
 
     async waitForEmail(subjectFilter, maxRetries = 40) {
-        this.logger.info(`Polling generator.email for: "${subjectFilter}"...`);
+        this.logger.info(`Polling mailsac for: "${subjectFilter}"...`);
 
         for (let i = 0; i < maxRetries; i++) {
             try {
-                const res = await this.httpClient.get(`https://generator.email/${this.currentEmail}`);
-                const html = res.data || '';
+                const res = await this.client.get(`/addresses/${this.currentEmail}/messages`);
+                const msgs = res.data;
 
-                // Cari magic token URL
-                const magicMatch = html.match(/https:\/\/blink\.new\/auth\?magic_token=[^\s"'<>&]+/);
-                if (magicMatch) {
-                    const magicUrl = magicMatch[0].replace(/&amp;/g, '&');
-                    this.logger.info(`✅ Magic token found in inbox!`);
-                    return { id: Date.now().toString(), body: html, html };
+                if (Array.isArray(msgs) && msgs.length > 0) {
+                    const msg = msgs.find(m => (m.subject || '').includes(subjectFilter));
+                    if (msg) {
+                        this.logger.info(`✅ Email found: "${msg.subject}"`);
+                        const bodyRes = await this.client.get(`/text/${this.currentEmail}/${msg._id}`);
+                        const body = typeof bodyRes.data === 'string' ? bodyRes.data : JSON.stringify(bodyRes.data);
+                        return { id: msg._id, body, html: body };
+                    }
                 }
-
-                // Cek apakah ada email dari blink
-                if (html.includes('auth@blink.new') || html.toLowerCase().includes('sign in to blink')) {
-                    this.logger.info(`✅ Blink email found!`);
-                    return { id: Date.now().toString(), body: html, html };
-                }
-
             } catch (e) {
                 this.logger.info(`Poll ${i + 1} error: ${e.message}`);
             }
@@ -77,7 +62,7 @@ class MailjsService {
             await new Promise(resolve => setTimeout(resolve, 5000));
         }
 
-        throw new Error('Timeout waiting for email on generator.email');
+        throw new Error('Timeout waiting for email on mailsac.com');
     }
 
     extractMagicTokenUrl(emailBody) {

@@ -60,6 +60,9 @@ class MailjsService {
      */
     async waitForEmail(subjectFilter, maxRetries = 24) {
         this.logger.info(`Waiting for email with subject: "${subjectFilter}" (mailsac.com)...`);
+        // Blink butuh ~30 detik untuk deliver email — tunggu dulu sebelum polling
+        this.logger.info('⏳ Initial delay 30s (Blink email delivery time)...');
+        await new Promise(resolve => setTimeout(resolve, 30000));
 
         for (let i = 0; i < maxRetries; i++) {
             try {
